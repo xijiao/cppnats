@@ -11,6 +11,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <array>
 
 #include <nats.h>
 
@@ -194,26 +195,34 @@ enum class ConnectionStatus {
   Connecting,
   Connected,
   Closed,
-  Reconnecting
+  Reconnecting,
+  DrainPubs,
+  DrainSubs
 };
 
 // Maps a natsConnStatus to a value in the ConnectionStatus enum class.
 static ConnectionStatus convert_natsConnStatus(natsConnStatus status) {
   switch (status) {
-    case DISCONNECTED:
+    case NATS_CONN_STATUS_DISCONNECTED:
       return ConnectionStatus::Disconnected;
 
-    case CONNECTING:
+    case NATS_CONN_STATUS_CONNECTING:
       return ConnectionStatus::Connecting;
 
-    case CONNECTED:
+    case NATS_CONN_STATUS_CONNECTED:
       return ConnectionStatus::Connected;
 
-    case CLOSED:
+    case NATS_CONN_STATUS_CLOSED:
       return ConnectionStatus::Closed;
 
-    case RECONNECTING:
+    case NATS_CONN_STATUS_RECONNECTING:
       return ConnectionStatus::Reconnecting;
+
+    case NATS_CONN_STATUS_DRAINING_PUBS:
+      return ConnectionStatus::DrainPubs;
+
+    case NATS_CONN_STATUS_DRAINING_SUBS:
+      return ConnectionStatus::DrainSubs;
 
     default:  // unknown state
       return ConnectionStatus::Closed;
@@ -263,7 +272,9 @@ struct Message {
     assert(nats_msg != nullptr);
 
     subject = natsMsg_GetSubject(nats_msg);
-    reply = natsMsg_GetReply(nats_msg);
+    if (const char* reply_str = natsMsg_GetReply(nats_msg)) {
+      reply = reply_str;
+    }
     data = natsMsg_GetData(nats_msg);
     data_length = natsMsg_GetDataLength(nats_msg);
   }

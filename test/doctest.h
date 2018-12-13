@@ -125,7 +125,6 @@
 #ifdef DOCTEST_PLATFORM_MAC
 // The following code snippet based on:
 // http://cocoawithlove.com/2008/03/break-into-debugger.html
-#ifdef DEBUG
 #if defined(__ppc64__) || defined(__ppc__)
 #define DOCTEST_BREAK_INTO_DEBUGGER()                                                              \
     if(doctest::detail::isDebuggerActive() && !DOCTEST_GCS()->no_breaks)                           \
@@ -135,7 +134,6 @@
     if(doctest::detail::isDebuggerActive() && !DOCTEST_GCS()->no_breaks)                           \
     __asm__("int $3\n" : :)
 #endif // __ppc64__ || __ppc__
-#endif // DEBUG
 #elif defined(_MSC_VER)
 #define DOCTEST_BREAK_INTO_DEBUGGER()                                                              \
     if(doctest::detail::isDebuggerActive() && !DOCTEST_GCS()->no_breaks)                           \

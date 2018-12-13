@@ -12,20 +12,27 @@ find_package(Threads REQUIRED)
 include(ExternalProject)
 ExternalProject_Add(cnats
   GIT_REPOSITORY "https://github.com/nats-io/cnats.git"
-  GIT_TAG "v1.3.6"
+  GIT_TAG "v1.8.0"
   UPDATE_COMMAND "")
   #INSTALL_COMMAND "": Leave the install step as it is.
 
 ExternalProject_Get_Property(cnats source_dir)
-set(CNATS_INSTALL_DIR ${source_dir}/../install)
+ExternalProject_Get_Property(cnats binary_dir)
+set(CNATS_SOURCE_DIR "${source_dir}/src")
+set(CNATS_BINARY_DIR "${binary_dir}/src")
 
 # Add include files
-include_directories(${CNATS_INSTALL_DIR}/include)
+include_directories(${CNATS_SOURCE_DIR})
 # Add library
 add_library(nats STATIC IMPORTED)
 # nats is statically compiled as a library with a different name: nats_static
 set_property(TARGET nats PROPERTY IMPORTED_LOCATION
-  ${CNATS_INSTALL_DIR}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}nats_static${CMAKE_STATIC_LIBRARY_SUFFIX})
+  ${CNATS_BINARY_DIR}/${CMAKE_STATIC_LIBRARY_PREFIX}nats_static${CMAKE_STATIC_LIBRARY_SUFFIX})
+# protobuf-c is needed
+add_library(protobuf STATIC IMPORTED)
+string(TOLOWER ${CMAKE_SYSTEM_NAME} SYSTEM_NAME)
+set_property(TARGET protobuf PROPERTY IMPORTED_LOCATION
+  ${CNATS_SOURCE_DIR}/../pbuf/lib/${SYSTEM_NAME}/${CMAKE_STATIC_LIBRARY_PREFIX}protobuf-c${CMAKE_STATIC_LIBRARY_SUFFIX})
 # Make sure that cnats is downloaded and built into a library.
 add_dependencies(nats cnats)
 
@@ -35,7 +42,7 @@ include_directories(${PROJECT_SOURCE_DIR}/../include)
 # Build the actual project.
 set(SOURCE_FILES tests.cpp)
 add_executable(cppnats_test ${SOURCE_FILES})
-target_link_libraries(cppnats_test nats ${OPENSSL_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+target_link_libraries(cppnats_test nats protobuf ${OPENSSL_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 
 # Declare tests
 add_test(NAME ${PROJECT_NAME} COMMAND $<TARGET_FILE:${PROJECT_NAME}>)
