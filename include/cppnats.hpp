@@ -20,7 +20,7 @@
 namespace std { // back compatible for glibc++ < 4.9
 template <typename T, typename... Args>
 std::unique_ptr<T> make_unique(Args&&... args) {
-	return std::unique_ptr<T>(new T(std::forward<Args>(args)...));
+  return std::unique_ptr<T>(new T(std::forward<Args>(args)...));
 }
 }; // end namespace std
 #endif // __GLIBCXX__ < 20150623
@@ -342,6 +342,14 @@ class Options {
   typedef std::function<void(natsConnection*, natsSubscription*, Status)>
       error_handler;
 
+  struct EventLoopAdaptor {
+    virtual ~EventLoopAdaptor() {}
+    virtual natsStatus handle_attach(void **userData, Connection *conn, natsSock socket) = 0;
+    virtual natsStatus handle_read_add_remove(void *userData, Connection *conn, bool add) = 0;
+    virtual natsStatus handle_write_add_remove(void *userData, Connection *conn, bool add) = 0;
+    virtual natsStatus handle_detach(void *userData, Connection *conn) = 0;
+  };
+
   /** \brief Construct a Options and specify a URL to connect to.
    *
    * Constructs Options and sets the URL of the `NATS Server` the client should
@@ -352,7 +360,7 @@ class Options {
    * @param connect_url url the string representing the URL the connection
    *                    should use to connect to the server.
    */
-  Options(const std::string& connect_url) {
+  Options(const std::string& connect_url) : adaptor_(nullptr) {
     natsOptions_Create(&opts_);
     HANDLE_STATUS(natsOptions_SetURL(opts_, connect_url.c_str()));
   }
@@ -372,8 +380,10 @@ class Options {
                                       closed_cb_(other.closed_cb_),
                                       disconnected_cb_(other.disconnected_cb_),
                                       reconnected_cb_(other.reconnected_cb_),
-                                      error_cb_(other.error_cb_) {
+                                      error_cb_(other.error_cb_),
+                                      adaptor_(other.adaptor_) {
     other.opts_ = nullptr;
+    other.adaptor_ = nullptr;
   }
 
   /// Return the underlying natsOptions pointer.
@@ -778,12 +788,30 @@ class Options {
     return reconnected_cb_;
   }
 
+  /** \brief Sets the event loop adaptor.
+   *
+   * Redirect the nats event loop callback to the adaptor object.
+   *
+   * @param adaptor the adaptor object to handle the event loop operations
+   */
+  Options event_loop_adaptor(EventLoopAdaptor* adaptor) {
+    adaptor_ = adaptor;
+    return std::move(*this);
+  }
+
+  /// Return the event loop adaptor
+  /// #reconnected_callback.
+  EventLoopAdaptor* get_event_loop_adaptor() const {
+    return adaptor_;
+  }
+
  private:
   natsOptions* opts_;
   connection_handler closed_cb_;
   connection_handler disconnected_cb_;
   connection_handler reconnected_cb_;
   error_handler error_cb_;
+  EventLoopAdaptor* adaptor_;
 };
 
 /** \brief Wraps a natsConnection and provides a high-level API.
@@ -806,11 +834,12 @@ class Connection {
    *
    * @param opts the options to use for this connection.
    */
-  Connection(const Options& opts) {
+  Connection(const Options& opts) : adaptor_(nullptr), adaptor_userdata_(nullptr) {
     set_closed_cb(opts);
     set_disconnected_cb(opts);
     set_reconnected_cb(opts);
     set_error_cb(opts);
+    set_event_loop_adaptor(opts);
 
     HANDLE_STATUS(natsConnection_Connect(&conn_, opts._get_ptr()));
   }
@@ -823,14 +852,8 @@ class Connection {
   void operator=(const Connection&) = delete;
   Connection(const Connection&) = delete;
 
-  /// Define a move constructor.
-  Connection(Connection&& other) noexcept : conn_(other.conn_) {
-    closed_handler_ = std::move(other.closed_handler_);
-    disconnected_handler_ = std::move(other.disconnected_handler_);
-    reconnected_handler_ = std::move(other.reconnected_handler_);
-    error_handler_ = std::move(other.error_handler_);
-    other.conn_ = nullptr;
-  }
+  // Class cannot be moved.
+  Connection(Connection&& other) = delete;
 
   /// Return the underlying natsConnection pointer.
   natsConnection* _get_ptr() { return conn_; }
@@ -1056,8 +1079,18 @@ class Connection {
                                 reinterpret_cast<void*>(error_handler_.get()));
   }
 
+  /// Set the event loop adaptor in options.
+  void set_event_loop_adaptor(const Options& opts) {
+    auto adaptor = opts.get_event_loop_adaptor();
+    if (!adaptor) return;
+    adaptor_ = adaptor;
+    natsOptions_SetEventLoop(opts._get_ptr(), this, eventloop_attach, eventloop_readaddremove, eventloop_writeaddremove, eventloop_detach);
+  }
+
  private:
   natsConnection* conn_;
+  Options::EventLoopAdaptor* adaptor_;
+  void* adaptor_userdata_;
 
   // The following variables and functions are useful for connection callbacks.
   // This is because we cannot take function pointer to a lambda and thus must
@@ -1076,6 +1109,28 @@ class Connection {
                                  natsStatus status, void* data) {
     auto f = reinterpret_cast<Options::error_handler*>(data);
     (*f)(conn, sub, convert_natsStatus(status));
+  }
+
+  static natsStatus eventloop_attach(void** userData, void* loop,
+                                     natsConnection* nc, natsSock socket) {
+    Connection* conn = reinterpret_cast<Connection*>(loop);
+    *userData = conn;
+    return conn->adaptor_->handle_attach(&(conn->adaptor_userdata_), conn, socket);
+  }
+
+  static natsStatus eventloop_readaddremove(void* userData, bool add) {
+    Connection* conn = reinterpret_cast<Connection*>(userData);
+    return conn->adaptor_->handle_read_add_remove(&(conn->adaptor_userdata_), conn, add);
+  }
+
+  static natsStatus eventloop_writeaddremove(void* userData, bool add) {
+    Connection* conn = reinterpret_cast<Connection*>(userData);
+    return conn->adaptor_->handle_write_add_remove(&(conn->adaptor_userdata_), conn, add);
+  }
+
+  static natsStatus eventloop_detach(void* userData) {
+    Connection* conn = reinterpret_cast<Connection*>(userData);
+    return conn->adaptor_->handle_detach(&(conn->adaptor_userdata_), conn);
   }
 };
 
