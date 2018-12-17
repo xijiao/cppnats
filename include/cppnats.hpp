@@ -1120,17 +1120,17 @@ class Connection {
 
   static natsStatus eventloop_readaddremove(void* userData, bool add) {
     Connection* conn = reinterpret_cast<Connection*>(userData);
-    return conn->adaptor_->handle_read_add_remove(&(conn->adaptor_userdata_), conn, add);
+    return conn->adaptor_->handle_read_add_remove(conn->adaptor_userdata_, conn, add);
   }
 
   static natsStatus eventloop_writeaddremove(void* userData, bool add) {
     Connection* conn = reinterpret_cast<Connection*>(userData);
-    return conn->adaptor_->handle_write_add_remove(&(conn->adaptor_userdata_), conn, add);
+    return conn->adaptor_->handle_write_add_remove(conn->adaptor_userdata_, conn, add);
   }
 
   static natsStatus eventloop_detach(void* userData) {
     Connection* conn = reinterpret_cast<Connection*>(userData);
-    return conn->adaptor_->handle_detach(&(conn->adaptor_userdata_), conn);
+    return conn->adaptor_->handle_detach(conn->adaptor_userdata_, conn);
   }
 };
 
@@ -1388,7 +1388,7 @@ class Subscription {
 };
 
 /// Clean up any global data allocated by cnats (for a clean Valgrind report).
-void ShutdownLibrary() { nats_Close(); }
+inline void ShutdownLibrary() { nats_Close(); }
 
 }  // namespace cppnats
 
